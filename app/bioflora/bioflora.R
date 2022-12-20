@@ -37,7 +37,7 @@ KBA = sf::st_read("Seychelles_KBA.shp", crs = 4326, quiet = TRUE)
 #KBA <- subset(KBA, STATUSID != 8)
 #to remove from the database the duplicated geometries corresponding to earlier/outdated outlines
 #sf::sf_use_s2(FALSE) # To avoid an error message coming from some bug when group-summarizing or something
-#KBA <- dplyr::summarise(dplyr::group_by(KBA, STATUSID, STATUS, ISLAND_GRO, PA_NAME)) 
+#KBA <- dplyr::summarise(dplyr::group_by(KBA, STATUSID, STATUS, ISLAND_GRO, PA_NAME))
 
 
 #Get choice lists for Shiny
@@ -63,7 +63,7 @@ SDgeoaccuracyNat <- SDgeoaccuracyNat %>% dplyr::group_by(taxonID) %>% dplyr::sum
 #To be replace by the next line to make sure no issue: SDgeoaccuracyNat$nObsNat <- SDgeoaccuracyNat$toCoordNat + SDgeoaccuracyNat$toLocNat + SDgeoaccuracyNat$vagueNat + SDgeoaccuracyNat$isNANat
 SDgeoaccuracyNat <- SDgeoaccuracyNat %>% rowwise() %>% mutate(nObsNat = sum(toCoordNat, toLocNat, vagueNat, isNANat, na.rm = TRUE))
 
-detailList <- c("General stats", "Species list", "Occurrence data", "Authors contributions", "Decadal stats", 
+detailList <- c("General stats", "Species list", "Occurrence data", "Authors contributions", "Decadal stats",
                 "Red List of species", "Red List of Ecosystems", "List of KBA triggers")
 
 ##########2. Shiny UI
@@ -168,31 +168,31 @@ server <- function(session, input, output) {
     save(hits, file="appusage.Rdata")
     paste0("Number of visits (hits) since 1st September 2022: ", hits)
   })
-  
+
   #Get the Map tabItem to load by default
   updateTabItems(session, inputId = "sidebar", selected = "map")
-  
+
   #Load my Logo for BIO
   #output$myLogo <- renderImage({
   #  im <- load.image('Bio_logo.png', deleteFile=TRUE)
   #  plot(im)
   #})
-  
+
 #First I have to observe the scaleSelect user input and update the user dashboard with the appropriate list
   #of elementOfFilter to pick from
   observe({
     elementOfFilterList <- elementOfFilterListAll %>% filter(scale == input$scaleSelect) %>% dplyr::select(nametxt)
     updateSelectInput(session, "elementOfFilter", "Pick one element of the list", choices=unique(elementOfFilterList))
   })
-  
+
 #Then I need to get the SDintAOI as a reactive function's return, to be called like an input
   #, in another series of reactive functions producing the various tables
   SDintAOI_r <- reactive({
-    if(input$scaleSelect == "national") {SDintAOI <- SDint} 
+    if(input$scaleSelect == "national") {SDintAOI <- SDint}
     if(input$scaleSelect == "tdwg4") {SDintAOI <- SDint[SDint$tdwg4 == input$elementOfFilter,]}
-    if(input$scaleSelect == "islandGroup") {SDintAOI <- SDint[SDint$islandGroup == input$elementOfFilter,]}  
-    if(input$scaleSelect == "island") {SDintAOI <- SDint[SDint$island == input$elementOfFilter,]}  
-    if(input$scaleSelect == "kba") {SDintAOI <- SDint[SDint$PA_NAME == input$elementOfFilter,]}  
+    if(input$scaleSelect == "islandGroup") {SDintAOI <- SDint[SDint$islandGroup == input$elementOfFilter,]}
+    if(input$scaleSelect == "island") {SDintAOI <- SDint[SDint$island == input$elementOfFilter,]}
+    if(input$scaleSelect == "kba") {SDintAOI <- SDint[SDint$PA_NAME == input$elementOfFilter,]}
     if(input$scaleSelect == "custom" && !is.null(input$userDefinedAOI)) {
       #userAOIshape <- sf::st_as_sf(geojsonio::geojson_read("sey_cadastral_selection2.geojson",  what = "sp"), crs = 4326)
       userFiledf <- input$userDefinedAOI #dataframe with 1 row + 4 columns (name, datapath)
@@ -212,17 +212,17 @@ server <- function(session, input, output) {
       SDintuserAOI$longitude <- SDintuserAOI$decimalLongitude
       SDintuserAOIshp <- sf::st_as_sf(x = SDintuserAOI, coords = c("longitude", "latitude"), crs=4326 )
       SDintAOI <- st_intersection(SDintuserAOIshp, userAOIshape) %>% as.data.table() %>%  dplyr::select(-geometry)
-    }  
+    }
     return(SDintAOI[SDintAOI$occurrenceStatus != "absent",])
-  })  
+  })
 
-#Render the map (= just same as reactive function)    
+#Render the map (= just same as reactive function)
   output$mymap <- renderLeaflet({
     req(SDintAOI_r())#input$myCadList_rows_selected)
     SDintAOI <- SDintAOI_r()
-    
+
     mapviewOptions(basemaps = c("OpenStreetMap", "Esri.WorldTopoMap", "Esri.WorldImagery"))
-    
+
     #SDintAOI <- with(SDintAOI, SDintAOI[order(decimalLatitude) , ])
     #SDintAOI <- SDintAOI[1:8000,]#ifelse(nrow(SDintAOI)>3000,SDintAOI[1:3000,],SDintAOI)
     SDintAOIview <- SDintAOI[SDintAOI$decimalLatitude > 0 | SDintAOI$decimalLatitude < 0,]
@@ -235,14 +235,14 @@ server <- function(session, input, output) {
     if(nrow(SDintAOIviewshp)>0) {
     map_mapview <- mapview(SDintAOIviewshp, zcol = "locationRemarks", cex = 4,layer.name="Species data geoaccuracy") #default cex is 8
     } else {map_mapview <- mapview()}
-    
+
     if(input$scaleSelect == "custom" && !is.null(input$userDefinedAOI)) {
       userFiledf <- input$userDefinedAOI
       userFiledf$directory <- dirname(paste(userFiledf[1,"datapath"]))
       userFile <- paste0(dirname(paste(userFiledf[1,"datapath"])), "/", paste("0.geojson"))
       userAOIshape <- sf::st_as_sf(geojsonio::geojson_read(userFile,  what = "sp"), crs = 4326)
       map_mapview <- mapview(userAOIshape) + map_mapview}
-    
+
     if(input$scaleSelect == "kba" && !is.null(input$elementOfFilter)) {
       KBAselected <- KBA[KBA$PA_NAME == input$elementOfFilter,]
       map_mapview <- mapview(KBAselected) + map_mapview}
@@ -252,7 +252,7 @@ server <- function(session, input, output) {
 #Get Species list table as a reactive function
   speciesList_r <- reactive({
     SDintAOI <- SDintAOI_r()
-    
+
     #Get local (AOI) establishmentMeans as a numeric value
     SDintx <- SDintAOI[SDintAOI$occurrenceStatus != "absent",]
     SDintx$establishmentMeansNumeric <- SDintx$establishmentMeans
@@ -263,17 +263,17 @@ server <- function(session, input, output) {
     SDintx$establishmentMeansNumeric[SDintx$establishmentMeansNumeric == "nativeEndemicPaleo"] <- 4
     #Add the interpreted establishmentMeans within the selected AOI
     SDintxAOI <-SDintx %>% dplyr::group_by(taxonID) %>% dplyr::summarize(Orig=max(establishmentMeansNumeric), n = n())
-    
+
     #Put back the taxonomic data from SP2acc (lost during group_by) (remove Rsp etc that were for national status)
     #SDintxAOI <- dplyr::left_join(SDintxAOI, SP2acc[,!c("RSp", "Rnative", "Rend", "RPend", "Rexo")], by = "taxonID")
     SDintxAOI <- dplyr::left_join(SDintxAOI, SP2acc, by = "taxonID")
-    
+
     #Take the default local orig status according to national
     SDintxAOI$establishmentMeansAOI <- SDintxAOI$establishmentMeansNat
     #Replace orig status in case it is locally known only as introduced (max of Orig=1)
     SDintxAOI$establishmentMeansAOI[SDintxAOI$Orig == 1] <- "introduced"
     SDintxAOI$establishmentMeansBoth <- paste(SDintxAOI$establishmentMeansAOI, SDintxAOI$establishmentMeansNat, sep="|")
-    
+
     #Do the same filtering of attributes and DT as for the Flora of Sey tab
     #SDintxAOITab <- SDintxAOI[,c("species_short", "vernacularName", "taxon_group_s", "synonyms", "establishmentMeansBoth", "degreeOfEstablishmentNat", "isInvasive", "threatStatusNat", "n")]
     #SDintxAOITab[order(SDintxAOITab$species_short),]
@@ -290,7 +290,7 @@ server <- function(session, input, output) {
                   extensions='Buttons',
                   options = list(pageLength=100, scrollX = TRUE,
                                  dom='Blfrtip', #Bfrtip is for buttons
-                                 buttons = 
+                                 buttons =
                                    list(
                                      list(
                                        extend = 'excel', text = "Download to Excel",
@@ -313,8 +313,8 @@ server <- function(session, input, output) {
                   escape = FALSE,
                   caption="List of species recorded from the selected Area Of Interest (AOI), showing the origin status (establishmentMeans) at both the AOI (left) and National (right) scales, as well as the degree of establishment (spread or invasion status).",
                   colnames=c("Taxonomic group"="taxon_group_s", "Origin (AOI|Nat)"="establishmentMeansBoth", "Spread"="degreeOfEstablishmentNat")
-                  ) #class = "compact") 
-  }) 
+                  ) #class = "compact")
+  })
 
   #Get main stats on species origins per taxonomic group as a reactive function
   speciesStat_r <- reactive({
@@ -324,7 +324,7 @@ server <- function(session, input, output) {
     #Outdate:SDintxAOIStat$Rend <- ifelse(stringr::str_detect(SDintxAOIStat$establishmentMeansAOI, "Endemic"), 1, 0)
     #Outdate:SDintxAOIStat$RPend <- ifelse(stringr::str_detect(SDintxAOIStat$establishmentMeansAOI, "EndemicPaleo"), 1, 0)
     #Outdate:SDintxAOIStat$Rexo <- ifelse(stringr::str_detect(SDintxAOIStat$establishmentMeansAOI, "introduced"), 1, 0)
-    
+
     #Outdate:StatAOI <- SDintxAOIStat %>% dplyr::group_by(taxon_group_concat) %>% dplyr::summarize(Total=sum(RSp), introduced=sum(Rexo), nativeAll = sum(Rnative), nativeEndemic=sum(Rend), nativePaleoEndemic=sum(RPend))
     StatAOI <- SDintxAOIStat %>% dplyr::group_by(taxon_group_concat) %>% dplyr::summarize(Total=sum(RSp, na.rm=TRUE), introduced=sum(isIntroduced, na.rm=TRUE), nativeAll = sum(isNative, na.rm=TRUE), nativeEndemic=sum(isEndemic, na.rm=TRUE), nativePaleoEndemic=sum(isEndemicPaleo, na.rm=TRUE))
     #StatAOI$EndRate <- round(StatAOI$nativeEndemic / StatAOI$nativeAll * 100, digits = 1)
@@ -340,7 +340,7 @@ server <- function(session, input, output) {
     DT::datatable(StatAOI[, 1:7], colnames=c("Taxonomic group" = "taxon_group_concat"),
                   extensions='Buttons',
                   options = list(dom='Blfrtip', #Bfrtip is for buttons
-                                 buttons = 
+                                 buttons =
                                    list(
                                      list(
                                        extend = 'excel', text = "Download to Excel",
@@ -355,21 +355,21 @@ server <- function(session, input, output) {
                                  #buttons=c('copy', 'csv' ,'excel')), #last bit for buttons
                   caption="Number of species in the flora of Seychelles, per taxonomic group and per types of origin (or establishmentMeans). The endemism rate (EndRate) is also indicated for each group.")
   })
-  
+
 #Now I want to built another speciesList table but less taxonomic and more conservation-oriented
-  #I want just the full scientificName, vernacName, origNat+AOI, isInv, iucnNat+Glo, sensitive, KBA trigger, 
+  #I want just the full scientificName, vernacName, origNat+AOI, isInv, iucnNat+Glo, sensitive, KBA trigger,
   #firstYear, lastYear, geoaccuracy stats for each species
   output$mytable_nationalRL <- renderDT({
     spListAOI <- speciesList_r()
     SP2acc_rl <- spListAOI[spListAOI$threatStatusNat == "EX" | spListAOI$threatStatusNat == "CR" | spListAOI$threatStatusNat == "EN" | spListAOI$threatStatusNat == "VU",] # & spListAOI$establismentMeansNat != "introduced",]
     SP2acc_rl <- SP2acc_rl[,c("species_short", "vernacularName", "taxon_group_s", "synonyms", "establishmentMeansNat", "threatStatusNat", "threatStatusGlobal", "informationWithheld")]
     SP2acc_rl <- SP2acc_rl[order(SP2acc_rl$threatStatusNat, SP2acc_rl$species_short),]
-    return(DT::datatable(SP2acc_rl[, 1:8], #class = "compact", 
+    return(DT::datatable(SP2acc_rl[, 1:8], #class = "compact",
                          rownames = FALSE, #options=list(pageLength=100),
                          extensions='Buttons',
                          options = list(pageLength=100, scrollX = TRUE,
                                         dom='Blfrtip', #Bfrtip is for buttons
-                                        buttons = 
+                                        buttons =
                                           list(
                                             list(
                                               extend = 'excel', text = "Download to Excel",
@@ -395,7 +395,7 @@ server <- function(session, input, output) {
                          )
            )
     })
-  
+
 #Get another tab with more species stats, especially relevant for KBAs
   output$mytable_geoaccuracyStat <- renderDT({
     #Gettin basic distribution data based on occurrence excluding 'absence' records and SPdistrib records
@@ -408,28 +408,28 @@ server <- function(session, input, output) {
     #replaced by below:SDgeoaccuracyAOI$nObs <- SDgeoaccuracyAOI$toCoord + SDgeoaccuracyAOI$toLoc + SDgeoaccuracyAOI$vague + SDgeoaccuracyAOI$isNA
     SDgeoaccuracyAOI <- SDgeoaccuracyAOI %>% rowwise() %>% mutate(nObs = sum(toCoord, toLoc, vague, isNA, na.rm = TRUE))
     #tdwg4KBA2022Stats <- tdwg4KBA2022Stats %>% rowwise() %>% mutate(PAPlus2022 = sum(PA, Proposed2022, na.rm = TRUE))
-    
+
     #Add the first and last Year of occurrence record in AOI (#xxOR use dplyr first last??)
     SDintxtmp$year <- as.numeric(substr(SDintxtmp$eventDate, 1, 4))
     SDintfirstYear <- aggregate(x = year ~ taxonID, data = SDintxtmp, FUN = min) %>% rename(firstYear=year)
     SDintlastYear <- aggregate(x = year ~ taxonID, data = SDintxtmp, FUN = max) %>% rename(lastYear=year)
-    
+
     #Now I can put geoaccuracy and years data back with the speciesList of the AOI
     NatTab2 <- dplyr::left_join(speciesList_r(), SDgeoaccuracyAOI, by = "taxonID")
     NatTab2 <- dplyr::left_join(NatTab2, SDintfirstYear, by = "taxonID")
     NatTab2 <- dplyr::left_join(NatTab2, SDintlastYear, by = "taxonID")
-    
+
     #Add the national count toCoord and Total
     NatTab2 <- dplyr::left_join(NatTab2,  SDgeoaccuracyNat, by = "taxonID")
     NatTab2$ratio <- round((as.numeric(NatTab2$nObs)/as.numeric(NatTab2$nObsNat))*100, digits = 1)
-    
+
     #Get the table to renderDT
     NatTab2 <- NatTab2[,c("species_short", "vernacularName", "occurrenceStatusNat", "toCoord", "toLoc", "vague", "isNA", "nObs", "nObsNat", "ratio", "firstYear", "lastYear")] %>% rename(occStatus=occurrenceStatusNat)
     NatTab2 <- NatTab2[order(NatTab2$species_short),]
     DT::datatable(NatTab2[, 1:12],
                   extensions='Buttons',
                   options = list(dom='Blfrtip', #Bfrtip is for buttons
-                                 buttons = 
+                                 buttons =
                                    list(
                                      list(
                                        extend = 'excel', text = "Download to Excel",
@@ -441,12 +441,12 @@ server <- function(session, input, output) {
                                  #buttons=c('copy', 'csv' ,'excel'), #last bit for buttons
                                  lengthMenu = list(c(10, 50, 100, -1),
                                                    c('10', '50', '100', 'all'))
-                    
+
                                 ),
                   caption="More detailed statistics on the existing data for each species depending on the geographic accuracy of occurrences. The ratio of the number of observations for the Area Of Interest (nObs) over the total number of observations in Seychelles (nObsNat) is provided, as well as the first and last year of observation (according to the available data)."
                   )
   })
-  
+
 #Then I want less critical stats, on the authors contribution and on the decade contributions
   output$mytable_authorStat <- renderDT({
     #Extract main author from recordedBy
@@ -460,7 +460,7 @@ server <- function(session, input, output) {
       SDintAuthors <- x
       SDintAuthors$recordedBy_1 <- "noData"
     }
-    
+
     #I tried making it work with crosstable::crosstable (nice) but it does not work, so I do just like for geoaccuracy
     SDintAuthors$isToCoordinate <- ifelse(SDintAuthors$locationRemarks == "toCoordinate",1,0)
     SDintAuthors$isToLocality <- ifelse(SDintAuthors$locationRemarks == "toLocality",1,0)
@@ -476,27 +476,27 @@ server <- function(session, input, output) {
     SDintAuthorsGeoaccuracy$toCoordP <- round(SDintAuthorsGeoaccuracy$toCoordinate * 100 / totalToCoord, digits=1)
     SDintAuthorsGeoaccuracy$toCoordinate <- paste0(SDintAuthorsGeoaccuracy$toCoordinate, " (", SDintAuthorsGeoaccuracy$toCoordP, " %)")
     SDintAuthorsGeoaccuracyTab <- SDintAuthorsGeoaccuracy[,c("Contributor", "toCoordinate", "toLocality", "vague", "isNA", "Total")]
-    
+
     DT::datatable(SDintAuthorsGeoaccuracyTab[, 1:6], rownames = FALSE, options=list(pageLength=50),
                   caption="Number of species occurrence data recorded by the different contributors at the different levels of geographic accuracy (or unknown accuracy: ‘NA’)"
-                  ) #class = "compact", 
+                  ) #class = "compact",
   })
-  
+
 
 #Then, I want a tabItem showing me the data that require attention, such as doubtfull taxa, new ones, GBIF-BIO disagreements,
   #iucnGlo-Nat disagreements: To improve performence, we use the National data rather that the SDintAOI
-  
+
   #xxx get the renderDT here for each and add 1 tabItem with the 3 tables vertically
   output$mytable_sensitiveSpecies <- renderDT({
     #List of sensitive taxa
     SP2acc_sensitive <- SP2acc %>% dplyr::filter(grepl('sensitiv', informationWithheld))
-    DT::datatable(SP2acc_sensitive[, c("species_short", "vernacularName")], 
-                  class = "compact", rownames = FALSE, 
-                  #colnames=c("Species name", "Local name"), 
+    DT::datatable(SP2acc_sensitive[, c("species_short", "vernacularName")],
+                  class = "compact", rownames = FALSE,
+                  #colnames=c("Species name", "Local name"),
                   extensions='Buttons',
-                  options=list(pageLength=10, 
+                  options=list(pageLength=10,
                                dom='Blfrtip', #Bfrtip is for buttons
-                               buttons = 
+                               buttons =
                                  list(
                                    list(
                                      extend = 'excel', text = "Download to Excel",
@@ -508,7 +508,7 @@ server <- function(session, input, output) {
                                #buttons=c('copy', 'csv' ,'excel'), #last bit for buttons
                                lengthMenu = list(c(10, 50, 100, -1),
                                                  c('10', '50', '100', 'all')),
-                               columnDefs = list(list(className = 'dt-left', targets = '_all'))), 
+                               columnDefs = list(list(className = 'dt-left', targets = '_all'))),
                   caption="List of plant species considered 'sensitive' (obscured coordinates) for the Flora of Seychelles")
     })
 
@@ -519,11 +519,11 @@ server <- function(session, input, output) {
     SP2acc_syngbif$gbifLink <-ifelse(nchar(SP2acc_syngbif$gbifID)>1,  paste0("<a href='","https://www.gbif.org/species/", SP2acc_syngbif$gbifID,"'>","https://www.gbif.org/species/", SP2acc_syngbif$gbifID,"</a>"), "")
     DT::datatable(SP2acc_syngbif[, c("scientificName", "gbifLink")],
                   escape = FALSE, #For him to understand the html bit as DT does not normally (as opposed to shiny::datatable)
-                  class = "compact", rownames = FALSE, 
+                  class = "compact", rownames = FALSE,
                   extensions='Buttons',
-                  options=list(pageLength=10, 
+                  options=list(pageLength=10,
                                dom='Blfrtip', #Bfrtip is for buttons
-                               buttons = 
+                               buttons =
                                  list(
                                    list(
                                      extend = 'excel', text = "Download to Excel",
@@ -535,20 +535,20 @@ server <- function(session, input, output) {
                                #buttons=c('copy', 'csv' ,'excel'), #last bit for buttons
                                lengthMenu = list(c(10, 50, 100, -1),
                                                  c('10', '50', '100', 'all')),
-                               columnDefs = list(list(className = 'dt-left', targets = '_all'))), 
+                               columnDefs = list(list(className = 'dt-left', targets = '_all'))),
                   caption="List of plant species names considered accepted in BIO but synonyms or absent in GBIF")
   })
-  
+
   output$mytable_rl2review <- renderDT({
     #List of threatened species that have different threat status Nationally and Globally
     SP2acc_rl2review <- SP2acc[SP2acc$threatStatusNat != SP2acc$threatStatusGlobal | is.na(SP2acc$threatStatusGlobal),]
     SP2acc_rl2review <- SP2acc_rl2review[order(SP2acc_rl2review$species_short),]
     DT::datatable(SP2acc_rl2review[, c("species_short", "threatStatusNat", "threatStatusGlobal")],
-                  class = "compact", rownames = FALSE, 
+                  class = "compact", rownames = FALSE,
                   extensions='Buttons',
-                  options=list(pageLength=10, 
+                  options=list(pageLength=10,
                                dom='Blfrtip', #Bfrtip is for buttons
-                               buttons = 
+                               buttons =
                                  list(
                                    list(
                                      extend = 'excel', text = "Download to Excel",
@@ -560,14 +560,14 @@ server <- function(session, input, output) {
                                #buttons=c('copy', 'csv' ,'excel'), #last bit for buttons
                                lengthMenu = list(c(10, 50, 100, -1),
                                                  c('10', '50', '100', 'all')),
-                               columnDefs = list(list(className = 'dt-left', targets = '_all'))), 
+                               columnDefs = list(list(className = 'dt-left', targets = '_all'))),
                   caption="List of plant species having a National Red List status different from the Global status")
   })
 
 #Finally, I want an ignorance map ## biodiversity map ## Ecosystem maps and red lists xxxetc ...
-  
-} 
-shinyApp(ui = ui, server = server) 
+
+}
+shinyApp(ui = ui, server = server)
 
 
 #Solve establishmentMeansBoth

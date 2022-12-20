@@ -1,0 +1,13 @@
+name: biodistrib
+title: biodistrib
+username:
+account: bsenterre
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6718193
+bundleId: 6657074
+url: https://bsenterre.shinyapps.io/biodistrib/
+when: 1671529983.32104
+lastSyncTime: 1671529983.32105
+asMultiple: FALSE
+asStatic: FALSE

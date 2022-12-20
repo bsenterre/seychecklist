@@ -371,12 +371,11 @@ SDint <- dplyr::left_join(SDint, SDtab2tmp, by = "occurrenceID")
 ```{r}
 #if (file.exists(paste0(path,"dwca-seysensitive-v1.4.zip"))) {
 if (exists("SDtabsensitive")) {
-  
   data.table::fwrite(SDint, file = "app/bioflora/SDint_sensitive.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
-  
-} else {
-  
-  SDint_cleaned <- SDint
+}
+
+#Export anyway a re-obscured version
+SDint_cleaned <- SDint
 
 #We needed full resolution data for the cleaning, but now we need to re-obscure
 SDint_cleaned <- SDint_cleaned[, dLatObsc := ifelse(!is.na(decimalLatitude) & informationWithheld %like% "sensitive",round(decimalLatitude, digits = 2),decimalLatitude)]
@@ -389,8 +388,11 @@ SDint_cleaned <- SDint_cleaned %>% rename(decimalLatitude = dLatObsc, decimalLon
 #xx <- SDint_cleaned[nchar(informationWithheld)>2,c("informationWithheld", "decimalLatitude", "dLatObsc")]
 
 data.table::fwrite(SDint_cleaned, file = "app/bioflora/SDint_obscured.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
-  
-}
+
+#If useful, read the last version of SDint
+SDint_obscured = data.table::fread("app/bioflora/SDint_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+
+data.table::fwrite(SDint_obscured, file = "app/biodistrib/SDint_obscured.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
 ```
 
 # Collect (extract) raster values at points

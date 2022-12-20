@@ -1,0 +1,13 @@
+name: bioflora
+title: bioflora
+username:
+account: bsenterre
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6780418
+bundleId: 6657013
+url: https://bsenterre.shinyapps.io/bioflora/
+when: 1671528724.13241
+lastSyncTime: 1671528724.13243
+asMultiple: FALSE
+asStatic: FALSE
