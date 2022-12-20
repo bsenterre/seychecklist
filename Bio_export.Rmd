@@ -1,0 +1,344 @@
+---
+title: "Exporting data from BIO to txt files ready for publication on GBIF via IPT"
+author: "Bruno Senterre"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, include = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Introduction
+Initially, I had a 'saved export' to txt directly from within Bio.accdb, but when the query grew in complexity it stopped working and gave an error message about "too many levels of queries" or something like that.
+Nevertheless the queries still worked in Access, and my next solution was to export first the queries from Bio.accdb to tables in a copy database file Bio_user.accdb. 
+
+I started using txt export function from within Bio_user.accdb, which worked but was very annoying since I would have to recreate the export dialogue each time I would make a change in the queries, and I had constantly issues with dates and memo fields. 
+
+Therefore, after giving some trials to R packages able to communicate with MS Access, I found a solution where I do not need anymore the export to txt function of MS Access. Everything is done right here in R, and I can also directly check easily for the fields included or not, and for their format, and I can also do some corrections in the data prior to publication. Although I could theoretically get rid of the export to Bio_user.accdb, RODBC could not diel with the queries in BIO.accdb, but could with the corresponding tables in Bio_user.accdb.
+
+In conclusion, after adding more data or editing some data in Bio.accdb, the procedure, consists simply in running the "Export to GBIF" button, which exports a copy of all the Bio.accdb queries to tables in Bio_user.accdb. Then I run this script to regenerate the txt files for publication of an update to GBIF datasets. Before hiting the export button in Bio.accdb, it is important to make sure no field contains any line break or tabulation (typically in iNaturalist); this is solved by running a replace query Replace([Field],Chr(13),""), idem Chr(10) and Chr(9).
+
+To run this script, you need to be BIO database administrator and/or have a copy of the BIO_user.accdb file.
+
+# Load libraries
+```{r}
+library(pacman)
+p_load(sf, dplyr, RODBC, data.table)
+```
+
+# Connect to MS Access BIO
+Connect to the the Bio_user.accdb file created from BIO.accdb and containing all the data from Seychelles.
+```{r eval=TRUE}
+### Define the path where the database is located (absolute or relative)
+db <- "D:/Database/Bio/Bio_user.accdb"
+### Connect to the database
+condb <- RODBC::odbcConnectAccess2007(db)
+### List of tables and views (i.e. queries) present in the database
+#x <- RODBC::sqlTables(condb)
+```
+
+#Import all relevant tables from the MS Access copy Bio_user
+```{r eval=TRUE}
+## seychecklist dataset
+seychecklistTaxon <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistTaxon") #2900
+seychecklistOccurrences_obscured <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistOccurrences_obscured") 
+seychecklistSpeciesDistribution <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistSpeciesDistributionUnionAll") 
+seychecklistAlternativeIdentifiers <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistAlternativeIdentifiers") 
+seychecklistSpeciesProfile <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistSpeciesProfile") 
+
+## seysensitive dataset
+seysensitive <- RODBC::sqlFetch(condb, "GBIFExport_ChecklistOccurrences_sensitive") 
+
+## seynotinchecklist dataset
+seynotinchecklist <- RODBC::sqlFetch(condb, "GBIFExport_OccurrencesNotInChecklist") 
+
+## seyplotveg dataset
+seyvegplotEvent <- RODBC::sqlFetch(condb, "GBIFExport_Event") 
+seyvegplotEventOccurrences_obscured <- RODBC::sqlFetch(condb, "GBIFExport_EventOccurrences_obscured") 
+
+## ecosystemology dataset
+ecosystemologyOccurrences <- RODBC::sqlFetch(condb, "GBIFExport_OccurrencesEcosystem") 
+ecosystemologyIdentificationHistory_fct <- RODBC::sqlFetch(condb, "GBIFExport_OccurrencesEcosystemIdentificationHistory_fct") 
+ecosystemologyIdentificationHistory_fctForis <- RODBC::sqlFetch(condb, "GBIFExport_OccurrencesEcosystemIdentificationHistory_fctForis")
+
+# See my ecosystemology script on how I manipulated to create the GBIF txt files from the above
+ED <- ecosystemologyOccurrences
+ED <- ED %>% select(-filter, -fieldNotes_currentDeterminavit)
+
+#I cannot get Eident at once from Access because of the impossibility to not truncate memo fields when exporting UNION ALL queries (or queries with GROUP_BY etc)
+#So I have to combine in R the 2 different BIO exports for Eident
+Eident_fct1 = ecosystemologyIdentificationHistory_fct
+Eident_fct1$dateIdentified <- lubridate::as_date(Eident_fct1$dateIdentified)
+Eident_fct1$identificationID <- as.character(Eident_fct1$identificationID)
+#Eident_fct1$dateIdentified <- lubridate::as_date(Eident_fct1$dateIdentified)
+Eident_fct2 = ecosystemologyIdentificationHistory_fctForis
+Eident_fct2$dateIdentified <- lubridate::as_date(Eident_fct2$dateIdentified)
+Eident_fct2$identificationID <- as.character(Eident_fct2$identificationID)
+Eident <- rbind(Eident_fct1, Eident_fct2)
+
+#Replace the MS Access 'taxonRemarks' (truncated at 255 because access cannot concatenate on memo fields)
+Eident <- Eident %>% select(-taxonRemarks)
+Eident$taxonRemarks <- paste0(Eident$lifeZoneID,"|",Eident$lifeZone,"|",Eident$ecoOrderID,"|",Eident$ecoOrder,"|",Eident$ecoFamilyID,"|",Eident$ecoFamily,"|",Eident$ecoGenusID,"|",Eident$ecoGenus,"|",Eident$ecoSpeciesID,"|",Eident$ecoSpecies,"|",Eident$ecoSpeciesTranslated)
+```
+
+Close the connection to the MS Access database file
+```{r eval=TRUE}
+RODBC::odbcClose(condb)
+```
+
+# Remove observations that are not within the AOI (in Seychelles)
+```{r eval=TRUE}
+seychecklistOccurrences_obscured <- seychecklistOccurrences_obscured %>% dplyr::filter(
+  is.na(decimalLatitude) | (decimalLatitude > -10.3 & decimalLatitude < -3.6)
+) %>% dplyr::filter(
+    is.na(decimalLongitude) | (decimalLongitude > 46.1 & decimalLongitude < 56.3)
+)
+#37528 to 37526
+
+seysensitive <- seysensitive %>% dplyr::filter(
+  is.na(decimalLatitude) | (decimalLatitude > -10.3 & decimalLatitude < -3.6)
+) %>% dplyr::filter(
+    is.na(decimalLongitude) | (decimalLongitude > 46.1 & decimalLongitude < 56.3)
+)
+#695 to 695
+
+seynotinchecklist <- seynotinchecklist %>% dplyr::filter(
+  is.na(decimalLatitude) | (decimalLatitude > -10.3 & decimalLatitude < -3.6)
+) %>% dplyr::filter(
+    is.na(decimalLongitude) | (decimalLongitude > 46.1 & decimalLongitude < 56.3)
+)
+#3051 to 3046
+```
+
+# Search for islandGroup and island inconsistencies
+Get the islandGroup from coordinates where it is missing (mostly iNaturalist)
+
+## Get the basic spatial data needed
+Data to be downloaded from Earth Engine and stored here in the subfolder datainput
+```{r eval=TRUE}
+sf::sf_use_s2(FALSE) # To avoid an error message coming from some bug when group-summarizing or something
+SEY = sf::st_read("datainput/sey_islands.shp", crs = 4326, quiet = TRUE)
+# https://code.earthengine.google.com/?asset=users/bsenterre/seychelles_basemaps/sey_islands
+SEY <- sf::st_buffer(SEY, dist = 0) #trick to solve some sf bugs or issues with vertices
+SEY_islgr = sf::st_read("datainput/sey_eez_islgroup.shp", crs = 4326, quiet = TRUE)
+```
+
+## For seychecklistOccurrences_obscured
+```{r eval=TRUE}
+#Get unobscured coordinates
+SDtab <- seychecklistOccurrences_obscured
+SDtabsensitive <- seysensitive
+#Get the list of SDtab that are obscured and remove the obscured coordinates data
+SDobscured <- SDtab %>% dplyr::filter(nchar(SDtab$informationWithheld)>2) %>% dplyr::select(-decimalLatitude, -decimalLongitude, -coordinateUncertaintyInMeters, -locationRemarks)
+#Get the replacement fields from SDsensitive
+SDunobscured <- SDtabsensitive %>% dplyr::select(occurrenceID, decimalLatitude, decimalLongitude, coordinateUncertaintyInMeters, locationRemarks)
+#Put those fields back into the sensitive dataset (should have 40 columns, 479 rows)
+SDfull <- dplyr::left_join(SDobscured, SDunobscured, by = "occurrenceID")
+#Take the complete dataset and remove all entries of sensitive species
+#= 36811 + 479 = 37290 of SDtab
+SDnotsensitive <- SDtab %>% dplyr::filter(nchar(SDtab$informationWithheld)==0)
+#Combine everything back together into a replacement SDtab
+SDtab <- rbind(SDnotsensitive, SDfull) #37526
+
+#Get the closest islandGroup and island from coordinates
+SDtab <- SDtab %>% dplyr::select(occurrenceID, islandGroup, island, decimalLatitude, decimalLongitude) %>% dplyr::filter(
+  !is.na(decimalLatitude) & decimalLatitude > -10.3 & decimalLatitude < -3.6
+) %>% dplyr::filter(
+    !is.na(decimalLongitude) & decimalLongitude > 46.1 & decimalLongitude < 56.3
+)
+SDtab <- st_as_sf(SDtab, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 ) #36195; now 36190
+
+SEY_islgrLand <- SEY_islgr %>% dplyr::filter(isl_gr != "SEY-EEZ")
+SDtab$islandGroupNearestID <- sf::st_nearest_feature(SDtab, SEY_islgrLand) #36195; now 36190
+SEY_islgrLand <- SEY_islgrLand %>% mutate(islandGroupNearestID = row_number())
+SEY_islgrLanddf <- as.data.frame(SEY_islgrLand) %>% dplyr::select(islandGroupNearestID, isl_grname, -geometry) %>% dplyr::rename(islandGroupNearest = isl_grname)
+SDtab <- left_join(SDtab, SEY_islgrLanddf, by = "islandGroupNearestID")
+
+SDtab$islandNearestID <- sf::st_nearest_feature(SDtab, SEY)
+SEYid <- SEY %>% mutate(islandNearestID = row_number()) %>% as.data.frame() %>% dplyr::select(islandNearestID, name, -geometry) %>% rename(islandNearest = name)
+SDtab <- left_join(SDtab, SEYid, by = "islandNearestID") #36195; now 36190
+
+#Just check islandGroup and island contradictions: should be only iNaturalist missing data plus a few Farquhar, Amirantes groups vs. island issues
+x <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest)
+#Notes on some corrections made so far:
+#1994; now 1989: all missing data from iNaturalist except for 5 entries said from Ile Platte (Coëtivy) but with Silhouette coordinates: e.g. occurrenceID=2ed3c83d-0c96-4ea7-8da2-dd383ea56734; The error seemed not to be in the gazetteer (no coordinates for Coetivy) but in the original geohab coordinates, so I deleted the coordinate data in BIO co_geohab!georef
+#For all remaining issues the missing islandGroup, can be replaced by the one found nearest
+
+xx <- SDtab %>% dplyr::filter(island != islandNearest) #2495; now 2409; now 2104
+#Notes on some corrections made so far:
+#There are a lot of errors in BIO for the minorArea field, e.g. gazet=Marie-Louise but minorArea=Amirantes group, while Marie-Louise is the name of the island. Probably these come from errors at the time of data entry, when the gazetteer and autoupdate were in earlier versions, without all islands recognized. Recently I had even digitized a number of missing islands from the gov shapefile.
+#For the Inner Islands especially, there are also a lot of missing island: iNaturalist
+#And a few minor issues e.g. Anonyme in place of Mahé: Some data entry error in Chris data, e.g. occurrenceID a1802a70-e949-4c57-ab70-4c10d6a32b7e
+#There seem to be a lot of errors in Robertson data, where island and coordinates are provided but do not match
+#So I corrected the coordinate references in Bio for those where the recorded islands was correct but not the coordinates; and for the others, we should simply replace the value by the one found spatially
+
+#OK, after correcting issues in BIO, there is only left in x and xx iNaturalist stuff and Amirantes + Farquhar issues, i.e. I can replace islandGroup and island everywhere with data found from coordinates #I also solved the Farquhar etc., and thus, after checking that indeed only iNaturalist errors are in, I can produce SDcorrect as below
+
+#Get the SDtab filtered to only the replacement records for correction in source data
+SDcorrect <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest | island != islandNearest) %>% dplyr::filter(is.na(island) | nchar(island)<1)
+
+#Correcting the source file imported from BIO for island and islandGroup
+#Get all source data that are not in the table of corrections
+inputTable <- seychecklistOccurrences_obscured
+a <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, toCorrect, -geometry), by = "occurrenceID")
+a <- a %>% dplyr::filter(is.na(toCorrect)) %>% dplyr::select(-toCorrect)
+
+#Get the entries to be corrected, and correct them
+b <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, islandGroupNearest, islandNearest, toCorrect, -geometry), by = "occurrenceID") %>% dplyr::filter(toCorrect == "yes")
+b$islandGroup <- b$islandGroupNearest
+b$island <- b$islandNearest
+b <- b %>% dplyr::select(-islandGroupNearest, -islandNearest, -toCorrect)
+
+#Combine a & b back into a complete table
+seychecklistOccurrences_obscured <- rbind(a, b) #37526
+```
+
+## For seysensitive
+Idem previous chunk but here with seysensitive (44 iNaturalist records), so no need to get unobscured data
+```{r eval=TRUE}
+#Get the closest islandGroup and island from coordinates
+SDtab <- seysensitive
+SDtab <- SDtab %>% dplyr::select(occurrenceID, islandGroup, island, decimalLatitude, decimalLongitude) %>% dplyr::filter(
+  !is.na(decimalLatitude) & decimalLatitude > -10.3 & decimalLatitude < -3.6
+) %>% dplyr::filter(
+    !is.na(decimalLongitude) & decimalLongitude > 46.1 & decimalLongitude < 56.3
+)
+SDtab <- st_as_sf(SDtab, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 ) #36195; now 36190
+
+SEY_islgrLand <- SEY_islgr %>% dplyr::filter(isl_gr != "SEY-EEZ")
+SDtab$islandGroupNearestID <- sf::st_nearest_feature(SDtab, SEY_islgrLand) #36195; now 36190
+SEY_islgrLand <- SEY_islgrLand %>% mutate(islandGroupNearestID = row_number())
+SEY_islgrLanddf <- as.data.frame(SEY_islgrLand) %>% dplyr::select(islandGroupNearestID, isl_grname, -geometry) %>% dplyr::rename(islandGroupNearest = isl_grname)
+SDtab <- left_join(SDtab, SEY_islgrLanddf, by = "islandGroupNearestID")
+
+SDtab$islandNearestID <- sf::st_nearest_feature(SDtab, SEY)
+SEYid <- SEY %>% mutate(islandNearestID = row_number()) %>% as.data.frame() %>% dplyr::select(islandNearestID, name, -geometry) %>% rename(islandNearest = name)
+SDtab <- left_join(SDtab, SEYid, by = "islandNearestID") #36195; now 36190
+
+#See all islandGroup contradictions
+x <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest) 
+xx <- SDtab %>% dplyr::filter(island != islandNearest) 
+
+#OK, after checking that indeed only iNaturalist errors are in, I can produce SDcorrect as below
+#Get the SDtab filtered to only the replacement records for correction in source data
+SDcorrect <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest | island != islandNearest) %>% dplyr::filter(is.na(island) | nchar(island)<1)
+
+#Now produce the corrected version with islandGroup and island
+#Get all source data that are not in the table of corrections
+inputTable <- seysensitive
+a <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, toCorrect, -geometry), by = "occurrenceID")
+a <- a %>% dplyr::filter(is.na(toCorrect)) %>% dplyr::select(-toCorrect)
+
+#Get the entries to be corrected, and correct them
+b <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, islandGroupNearest, islandNearest, toCorrect, -geometry), by = "occurrenceID") %>% dplyr::filter(toCorrect == "yes")
+b$islandGroup <- b$islandGroupNearest
+b$island <- b$islandNearest
+b <- b %>% dplyr::select(-islandGroupNearest, -islandNearest, -toCorrect)
+
+#Combine a & b back into a complete table xxedit also the name of the output
+seysensitive <- rbind(a, b) #695, now 694
+```
+
+## For seynotinchacklist
+Idem previous chunk but here with seynotinchacklist, so no need to get unobscured data
+Note on some corrections done:
+seynotinchecklist (1846 islandGroup issues all from iNaturalist but 1 from Coettivy: 2b24ad27-36ea-41c3-8502-20f4c5e526a7; 1876 island issues all iNaturalist or Amirantes, Farquhar issues, and 1 Coettivy + 2 Praslin issues: 80aa15b2-0acd-4f45-b92f-e16083886258, dcb761a6-ece4-41da-8b83-c6789f26c707 (Pointe Rouge on Curieuse, not Praslin so corrected in bs_gazet))
+```{r eval=TRUE}
+#Get the closest islandGroup and island from coordinates
+SDtab <- seynotinchecklist
+SDtab <- SDtab %>% dplyr::select(occurrenceID, islandGroup, island, decimalLatitude, decimalLongitude) %>% dplyr::filter(
+  !is.na(decimalLatitude) & decimalLatitude > -10.3 & decimalLatitude < -3.6
+) %>% dplyr::filter(
+    !is.na(decimalLongitude) & decimalLongitude > 46.1 & decimalLongitude < 56.3
+)
+SDtab <- st_as_sf(SDtab, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 ) #36195; now 36190
+
+SEY_islgrLand <- SEY_islgr %>% dplyr::filter(isl_gr != "SEY-EEZ")
+SDtab$islandGroupNearestID <- sf::st_nearest_feature(SDtab, SEY_islgrLand) #36195; now 36190
+SEY_islgrLand <- SEY_islgrLand %>% mutate(islandGroupNearestID = row_number())
+SEY_islgrLanddf <- as.data.frame(SEY_islgrLand) %>% dplyr::select(islandGroupNearestID, isl_grname, -geometry) %>% dplyr::rename(islandGroupNearest = isl_grname)
+SDtab <- left_join(SDtab, SEY_islgrLanddf, by = "islandGroupNearestID")
+
+SDtab$islandNearestID <- sf::st_nearest_feature(SDtab, SEY)
+SEYid <- SEY %>% mutate(islandNearestID = row_number()) %>% as.data.frame() %>% dplyr::select(islandNearestID, name, -geometry) %>% rename(islandNearest = name)
+SDtab <- left_join(SDtab, SEYid, by = "islandNearestID") #36195; now 36190
+
+#See all islandGroup contradictions
+x <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest) 
+xx <- SDtab %>% dplyr::filter(island != islandNearest) 
+
+#OK, after checking that indeed only iNaturalist errors are in, I can produce SDcorrect as below
+#Get the SDtab filtered to only the replacement records for correction in source data
+SDcorrect <- SDtab %>% dplyr::filter(islandGroup != islandGroupNearest | island != islandNearest) %>% dplyr::filter(is.na(island) | nchar(island)<1)
+
+#Now produce the corrected version
+#Get all source data that are not in the table of corrections
+inputTable <- seynotinchecklist
+a <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, toCorrect, -geometry), by = "occurrenceID")
+a <- a %>% dplyr::filter(is.na(toCorrect)) %>% dplyr::select(-toCorrect)
+
+#Get the entries to be corrected, and correct them
+b <- left_join(inputTable, as.data.frame(SDcorrect) %>% mutate(toCorrect = "yes") %>% dplyr::select(occurrenceID, islandGroupNearest, islandNearest, toCorrect, -geometry), by = "occurrenceID") %>% dplyr::filter(toCorrect == "yes")
+b$islandGroup <- b$islandGroupNearest
+b$island <- b$islandNearest
+b <- b %>% dplyr::select(-islandGroupNearest, -islandNearest, -toCorrect)
+
+#Combine a & b back into a complete table xxedit also the name of the output
+seynotinchecklist <- rbind(a, b) #3046
+```
+
+#Exporting data from Bio to txt files ready for GBIF publication via the IPT
+At the same time here we remove a few extra fields that came from BIO but are not needed in GBIF
+```{r eval=TRUE}
+#As this script will be shared to show how we created the files for GBIF publication, we export to another directory just to make sure we do not leave the sensitive data in this folder here.
+path <- "D:/Database/Bio/gbif/Bio_export/"
+
+data.table::fwrite(setDT(seychecklistTaxon %>% dplyr::select(-species_short, -name_type, -sey_cited, -sey_present, -synonyms_concat, -id_gbif, -id_iucn)), file = paste0(path,"seychecklistTaxon.txt"), append = FALSE, quote = TRUE, sep = "\t")
+#unmapped fields: species_short name_type sey_cited sey_present synonyms_concat id_gbif id_iucn
+
+data.table::fwrite(setDT(seychecklistOccurrences_obscured %>% dplyr::select(-occurrenceRemarks1plot, -species_short)), file = paste0(path,"seychecklistOccurrences_obscured.txt"), append = FALSE, quote = TRUE, sep = "\t")
+#unmapped: occurrenceRemarks1plot species_short, Taxon; wrong format for 'references'?? replace by bibliographicCitation
+
+data.table::fwrite(setDT(seychecklistSpeciesDistribution %>% dplyr::select(-scientificName, -taxonomicStatus, -establishmentMeanstmp, -isMarine, -isFreshwater, -isTerrestrial, -isInvasive, -lifeForm, -habitat)), file = paste0(path,"seychecklistSpeciesDistribution.txt"), append = FALSE, quote = TRUE, sep = "\t")
+#unmapped: scientificName taxonomicStatus establishmentMeanstmp isMarine isFreshwater isTerrestrial isInvasive lifeForm habitat
+
+data.table::fwrite(setDT(seychecklistSpeciesProfile %>% dplyr::select(-scientificName, -taxonomicStatus)), file = paste0(path,"seychecklistSpeciesProfile.txt"), append = FALSE, quote = TRUE, sep = "\t")
+#unmapped: scientificName taxonomicStatus
+
+data.table::fwrite(setDT(seychecklistAlternativeIdentifiers), file = paste0(path,"seychecklistAlternativeIdentifiers.txt"), append = FALSE, quote = TRUE, sep = "\t")
+
+data.table::fwrite(setDT(seysensitive), file = paste0(path,"seysensitiveOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
+
+data.table::fwrite(setDT(seynotinchecklist), file = paste0(path,"seynotinchecklistOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
+
+data.table::fwrite(setDT(seyvegplotEvent), file = paste0(path,"seyvegplotEvent.txt"), append = FALSE, quote = TRUE, sep = "\t")
+data.table::fwrite(setDT(seyvegplotEventOccurrences_obscured), file = paste0(path,"seyvegplotEventOccurrences_obscured.txt"), append = FALSE, quote = TRUE, sep = "\t")
+
+data.table::fwrite(ecosystemologyOccurrences, file = paste0(path,"ecosystemologyOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
+data.table::fwrite(Eident, file = paste0(path,"ecosystemologyIdentificationHistory.txt"), append = FALSE, quote = TRUE, sep = "\t")
+```
+
+# Verify the txt files before publication
+```{r eval=FALSE}
+#Read the txt files as they are after the export from above
+checkTable = data.table::fread(paste0(path,"seychecklistOccurrences_obscured.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+
+#Check format of the fields and max number of characters in all fields for eventual memo field truncated
+#checkTable <- Eident # xxedit this using one the option summarized below
+#seychecklistTaxon, seychecklistOccurrences_obscured, seychecklistSpeciesDistribution, seychecklistSpeciesProfile, 
+#seysensitive, seynotinchecklist
+#seyvegplotEvent, seyvegplotEventOccurrences_obscured
+#ecosystemologyOccurrences, Eident
+
+glimpse(checkTable)
+apply(checkTable,2,function(x) max(nchar(x,keepNA = FALSE)))
+
+#check dates
+unique(checkTable$eventDate)
+
+#check for any Chr(10) or Chr(9) in the memo fields, i.e. in-text tabilations or line breaks
+#In Bio.accdb those characters are eliminated when new data had been added from the field or from iNaturalist using a series of 'Replace' queries.
+```

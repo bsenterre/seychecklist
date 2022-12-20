@@ -1,0 +1,415 @@
+---
+title: "Compiling BIO data as downloaded from GBIF datasets, for use in bioflora Shiny app"
+author: "Bruno Senterre"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, include = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Introduction
+This script compiles the BIO data as it is published on GBIF and puts it back into an integrated format that we can then use to produce a Shiny app and explore data and make it available to users.
+
+# Load libraries
+```{r Load_Libraries, echo = FALSE, eval = TRUE, message = FALSE, include = FALSE}
+library(data.table)
+library(sf)
+library(raster)
+library(dplyr)
+library(stringr)
+library(taxize)
+library(tibble)
+library(purrr) #or tidyverse but much more conflict of function names
+```
+
+#Get/download the datasets and then Load them in R
+
+##Get the BIO datasets from GBIFS
+To use this chunk, download the BIO data from GBIF as Darwin Core Archive formats (zipped folders)
+seychecklist: https://www.gbif.org/dataset/d0b7cc29-8ce3-49ad-b1b6-675fd39412ee
+seysensitive: https://cloud.gbif.org/africa/resource?r=seysensitive (requires to be logged in with access right)
+seynotinchecklist: https://www.gbif.org/dataset/99ccf1cc-03e3-4bd4-8a78-50d46dee8cb7
+seyvegplot: https://www.gbif.org/dataset/4fc42f17-eaeb-4296-949d-34b8414eb1c1
+ecosystemology: https://www.gbif.org/dataset/f513fe98-b1c3-45ee-8e14-7f2a5b7890bf
+
+Below, modify the path to the downloaded zipped files and the version names if necessary. 
+Alternatively, go to the next chunk if you want to run this script based on the GBIF datasets in their pre-publishing format (produced by the script Bio_export.Rmd)
+
+```{r}
+#xxedit the path to the downloaded zipped files
+path <- "C:/Users/bsent/Downloads/"
+
+SDtab = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")
+SDtab <- SDtab %>% dplyr::select(-taxonID) %>% rename(taxonID = id)
+SP = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "taxon.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::select(-id)
+SPmeta = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "speciesprofile.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
+SPdistrib = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "distribution.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
+ID = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "identifier.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::rename(taxonID=id)
+
+SDplot = data.table::fread(unzip(paste0(path,"dwca-seyvegplot-v1.3.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::select(-id)
+
+if (file.exists(paste0(path,"dwca-seysensitive-v1.4.zip"))) {
+  SDtabsensitive = data.table::fread(unzip(paste0(path,"dwca-seysensitive-v1.4.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::select(-id)
+}
+SDnot = data.table::fread(unzip(paste0(path,"dwca-seynotinchecklist-v1.5.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::select(-id)
+ecosystem = data.table::fread(unzip(paste0(path,"dwca-ecosystemology-v1.3.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::select(-id)
+
+#Delete the txt files unzipped from the DwC-A (Darwin Core Archives, i.e. zipped folders downloaded from GBIF), just to make sure we do not leave accidentally a copy of the occurrence.txt file for the seysensitive dataset in the folder that is shared on GitHub.
+file.remove("occurrence.txt")
+file.remove("taxon.txt")
+file.remove("distribution.txt")
+file.remove("speciesprofile.txt")
+file.remove("identifier.txt")
+```
+
+##Or use a direct export to GBIF format from BIO
+I use this chunk as alternative to the previous, especially for manipulations with newer, not yet published versions of the same datasets, for exploration prior to the publication of an update on GBIF. In that case, the GBIF formated txt files produced by Bio_export are located in "D:/Database/Bio/gbif/Exports_BIO_to_GBIF"
+
+```{r eval = FALSE}
+SP = data.table::fread("D:/Database/Bio/gbif/Bio_export/seychecklistTaxon.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8") 
+SDtab = data.table::fread("D:/Database/Bio/gbif/Bio_export/seychecklistOccurrences_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+SPdistrib = data.table::fread("D:/Database/Bio/gbif/Bio_export/seychecklistSpeciesDistribution.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+SPmeta = data.table::fread("D:/Database/Bio/gbif/Bio_export/seychecklistSpeciesProfile.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+ID = data.table::fread("D:/Database/Bio/gbif/Bio_export/seychecklistAlternativeIdentifiers.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+
+SDplot = data.table::fread("D:/Database/Bio/gbif/Bio_export/seyvegplotEventOccurrences_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+
+if (file.exists("D:/Database/Bio/gbif/Bio_export/seysensitiveOccurrences.txt")) {
+  SDtabsensitive = data.table::fread("D:/Database/Bio/gbif/Bio_export/seysensitiveOccurrences.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+}
+
+SDnot = data.table::fread("D:/Database/Bio/gbif/Bio_export/seynotinchecklistOccurrences.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+
+ecosystem = data.table::fread("D:/Database/Bio/gbif/Bio_export/ecosystemologyOccurrences.txt", header = TRUE, sep ="\t", dec = ".", encoding = "UTF-8")
+```
+
+## Get ecosystem and base maps (4)
+```{r}
+sf::sf_use_s2(FALSE) # To avoid an error message coming from some bug when group-summarizing or something
+SEY = sf::st_read("datainput/sey_islands.shp", crs = 4326, quiet = TRUE)
+# https://code.earthengine.google.com/?asset=users/bsenterre/seychelles_basemaps/sey_islands
+SEY <- sf::st_buffer(SEY, dist = 0) #trick to solve some sf bugs or issues with vertices
+SEY_islgr = sf::st_read("datainput/sey_eez_islgroup.shp", crs = 4326, quiet = TRUE)
+```
+
+To run only if you have the input data (to be shared elsewhere, on Earth Engine)
+```{r eval = FALSE}
+Cad1 = sf::st_read("datainput/sey_Adm_cadastral_2021dd_ownership.shp", crs = 4326, quiet = TRUE)
+Cad0 = sf::st_read("datainput/sey_Adm_cadastral_2021dd_NOCADASTRE.shp", crs = 4326, quiet = TRUE)
+#Load the metadata table on cadastral parcels
+CadData <- read.csv("datainput/sey_cad_ownership.csv", header = TRUE, sep = ";", encoding = "Windows-1252")#"UTF-8") #\t
+
+WS = sf::st_read("datainput/sey_watershed.shp", crs = 4326, quiet = TRUE)
+
+DEM <- raster::raster("datainput/Senterre_2021_SeyInner_DEM_Lidar_Jaxa.tif")
+LC <- raster::raster("datainput/Senterre_2021_SeyInner_LC_obia.tif")
+EcoGe_cur <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_cur.tif")
+EcoGe_pot <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_pot.tif")
+EcoGe_pre <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_pre.tif")
+LUP <- raster::raster("datainput/Senterre_2021_SeyInner_LUP.tif")
+Nat <- raster::raster("datainput/Senterre_2021_SeyInner_Naturalness.tif")
+
+altibelt_reclass <- c(0, 300, 1, 300, 500, 2, 500, 780, 3, 780, Inf, 4)
+altibelt_mat <- matrix(altibelt_reclass, ncol = 3, byrow = TRUE)
+altibelt <- reclassify(DEM,altibelt_mat)
+
+#And then eventually load your own Area Of Interest (AOI)
+#myAOI = st_read("datainput/myAOI.shp", crs = 4326, quiet = TRUE)
+```
+
+# Create a sf of all KBAs and PAs (4b)
+```{r}
+KBA = sf::st_read("datainput/sey_cons_pas2021.shp", crs = 4326, quiet = TRUE)
+KBA <- base::subset(KBA, STATUSID != 8)
+#to remove from the database the duplicated geometries corresponding to earlier/outdated outlines
+sf::sf_use_s2(FALSE) # To avoid an error message coming from some bug when group-summarizing or something
+KBA <- dplyr::summarise(dplyr::group_by(KBA, STATUSID, STATUS, ISLAND_GRO, PA_NAME)) 
+#To regroup elements of the table according to attributes, e.g. several geometries for Silhouette N.P.
+KBA$isPA <- ifelse(KBA$STATUSID <6,"1-Protected","3-Other")
+KBA$isPA <- ifelse(KBA$STATUSID == 6,"2-Proposed",KBA$isPA)
+KBA$isPA2022 <- ifelse(KBA$STATUSID <6,"1-Protected","3-Other")
+KBA$isPA2022 <- ifelse(KBA$PA_NAME == "Fond Azore-Fond Ferdinand" | KBA$PA_NAME == "Montagne Corail-Collines du Sud-Police Baie" | KBA$PA_NAME == "Planneau-Brûlée" | KBA$PA_NAME == "Praslin West (L'Amitié-Mt Takamaka)","2-Proposed",KBA$isPA2022)
+
+#KBA <- KBA[, c("STATUSID","ISLAND_GRO","PA_NAME")]
+#To select just the columns we need
+
+KBAmeta <- dplyr::select(as.data.frame(KBA), -geometry) 
+#to convert a sf object to a simple table (data.frame)
+
+KBAmeta <- with(KBAmeta, KBAmeta[order(STATUSID, ISLAND_GRO, PA_NAME) , ])
+#to re-order the table according to some field content
+#knitr::kable(KBAmeta[1:10, 1:3])
+
+###KBAinner <- st_crop(KBA, st_bbox(extent(LC), crs=4326)) 
+# Subset KBA shp to the extent of the Land Cover Raster
+
+#KBA$area_ha <- st_area(KBA) #Take care of units xxedit remove this if I use the lines for SEYi outline
+
+```
+
+# Produce SP2acc
+## Taxon names in the checklist and spliting higherClassification (5a)
+First let's get our BIO backbone by spliting the field higherClassification
+```{r}
+SP2 <- splitstackshape::cSplit(SP, "higherClassification", "|")
+SP2 <- dplyr::rename(SP2, taxon_group_id = higherClassification_1, taxon_group = higherClassification_2, taxon_mesogroup = higherClassification_3, taxon_macrogroup = higherClassification_4)
+```
+
+## Concatenate synonyms into 1 multiple values field for aggregated accepted names
+```{r}
+SPtmp <- SP[SP$taxonID != SP$acceptedNameUsageID,c("acceptedNameUsageID", "scientificName")] %>% group_by(acceptedNameUsageID, scientificName) %>% dplyr::summarize()
+
+SPtmp2 <- SPtmp %>% group_by(acceptedNameUsageID) %>% dplyr::summarise(dplyr::across(everything(), stringr::str_c, collapse="|")) %>% dplyr::rename(synonyms = scientificName)
+
+SP2acc <- dplyr::left_join(subset(SP2, taxonomicStatus =="ACCEPTED"), SPtmp2, by = "acceptedNameUsageID")
+```
+
+## Adding SPmeta to SP table AND species_short
+```{r}
+#?Regrouping "isMarine"      "isFreshwater"  "isTerrestrial" into 1 attribute
+SP2acc <- dplyr::left_join(SP2acc, SPmeta, by = "taxonID")
+
+#Replace string values within a whole table
+SP2acc <- setDT(SP2acc)[, taxonRank := str_replace(taxonRank, "subspecies", "subsp.")]
+SP2acc <- setDT(SP2acc)[, taxonRank := str_replace(taxonRank, "variety", "var.")]
+SP2acc <- setDT(SP2acc)[, taxonRank := str_replace(taxonRank, "species", "")]
+SP2acc <- setDT(SP2acc)[, taxonRank := str_replace(taxonRank, "genus", "")]
+
+SP2acc$species_short <- paste(SP2acc$genericName, " ", SP2acc$specificEpithet, " ", SP2acc$taxonRank, " ", SP2acc$infraspecificEpithet)
+
+#Sorry, I don't know how to make this nicer, but it works
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "     ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "    ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "   ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "  ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "  ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "  ", " ")]
+SP2acc <- setDT(SP2acc)[, species_short := str_replace(species_short, "  ", " ")]
+```
+
+## Add SPdistrib_sey attributes to SP2acc
+Merging SP2acc sp list to their National status of origin and invasion
+```{r}
+SPdistrib_sey <- dplyr::filter(SPdistrib, locationID != "TDWG:ALD-OO" & locationID != "TDWG:SEY-OO") #3534 entries to 1745
+SPdistrib_sey <- SPdistrib_sey[, c("taxonID", "lifeStage", "occurrenceStatus", "establishmentMeans", "degreeOfEstablishment", "threatStatus")]
+SP2acc <- dplyr::left_join(SP2acc, SPdistrib_sey, by = "taxonID")
+
+#Rename to clearly state that these are National scale statuses
+SP2acc <- SP2acc %>% dplyr::rename(lifeStageNat = lifeStage, establishmentMeansNat = establishmentMeans, degreeOfEstablishmentNat = degreeOfEstablishment, occurrenceStatusNat = occurrenceStatus, threatStatusNat = threatStatus)
+```
+
+## Adding gbif and IUCN IDs to the SP table
+```{r}
+gbifID <- base::subset(ID, subject =="gbif")
+gbifID <- dplyr::rename(gbifID, gbifID = identifier)
+gbifID <- gbifID[, c("taxonID", "gbifID")]
+
+SP2acc <- dplyr::left_join(SP2acc, gbifID, by = "taxonID")
+
+iucnID <- base::subset(ID, subject =="iucn")
+iucnID <- dplyr::rename(iucnID, iucnID = identifier)
+iucnID <- iucnID[, c("taxonID", "iucnID")]
+
+SP2acc <- dplyr::left_join(SP2acc, iucnID, by = "taxonID")
+#DT::datatable(SP2acc[, c("scientificName", "family", "id_gbif", "gbifID")])
+```
+
+## Importing into SP table the gbif and IUCN data from their IDs
+To rerun if the species list has changed since last run or if last run was long time ago so that GBIF or IUCN statuses might have changed
+Otherwize, import these columns from a saved intermediary result from previous export: then skip this chunk and run the next one.
+```{r eval = FALSE}
+#Takes about 6 minutes for the 1762 SP2acc
+#SPx <- SP2acc#[1:10,]
+SP2acc$gbifNameUsage <- "" #Cannot put NA because he wants a 'character' attribute
+SP2acc$gbifStatus <- ""
+
+for(i in 1:nrow(SP2acc)) {
+  rowi <- SP2acc[i,]
+  spi <- rowi$gbifID
+    if(!is.na(spi) && !is.null(spi)) {
+  gbif_nameUsagefct <- taxize::gbif_name_usage(key=spi)
+  SP2acc[i, "gbifNameUsage"] <- gbif_nameUsagefct$scientificName #gbifStatusi
+  SP2acc[i, "gbifStatus"] <- gbif_nameUsagefct$taxonomicStatus #gbifStatusi
+    }
+}
+
+#trying with IUCN API now using 'rredlist'
+SPiucn <- SP2acc[nchar(SP2acc$iucnID)>1,]# | nchar(SP2acc$threatStatus)>1,]
+#xx <- rl_threats(id = 33547, key="see my RedListAPI token")
+#Then trying with taxize (works but takes about 10 minutes)
+iucnList <- taxize::iucn_summary(SPiucn$species_short, key="6d304cbd5c49f60d7e57460f7f5a9dbbb446c3a3ae363e1fc7441a0e91a47a8f")
+iucnList_df <- iucn_status(iucnList) %>% as.data.frame() %>% tibble::rownames_to_column(var="Species") %>% purrr::set_names("species_short", "threatStatusGlobal")
+#iucnList_df <- iucnList_df[order(iucnList_df$Species),]
+SP2acc <- dplyr::left_join(SP2acc, iucnList_df, by = "species_short")
+
+#See also this resource for the use of IUCN API: https://apiv3.iucnredlist.org/api/v3/docs#species-individual-id
+
+SP2acc_iucngbif <- SP2acc[,c("taxonID","gbifNameUsage","gbifStatus","threatStatusGlobal")]
+data.table::fwrite(SP2acc_iucngbif, file = "SP2acc_iucngbif.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
+```
+
+OR just get the IUCN and GBIF information from a previously saved result of above step
+```{r}
+SP2acc_iucngbif = data.table::fread("datainput/SP2acc_iucngbif.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+SP2acc <- dplyr::left_join(SP2acc, SP2acc_iucngbif, by = "taxonID")
+```
+
+## Add a few more columns for taxon_group and generalized establishmentMeans for stats
+```{r}
+SP2acc$taxon_group_s <- paste(SP2acc$taxon_group_id, "|", SP2acc$taxon_group, "|", SP2acc$family)
+SP2acc$taxon_group_concat <- paste(SP2acc$taxon_group_id, "|", SP2acc$taxon_macrogroup, "|", SP2acc$taxon_mesogroup, "|", SP2acc$taxon_group)
+SP2acc <- SP2acc %>% rename(habitatUse = habitat)
+
+SP2acc <- SP2acc[, isNative := ifelse(establishmentMeansNat %like% "native", 1,0)]
+SP2acc <- SP2acc[, isEndemic := ifelse(establishmentMeansNat %like% "Endemic", 1,0)]
+SP2acc <- SP2acc[, isEndemicPaleo := ifelse(establishmentMeansNat %like% "EndemicPaleo", 1,0)]
+SP2acc <- SP2acc[, isIntroduced := ifelse(establishmentMeansNat %like% "introduced", 1,0)]
+SP2acc <- SP2acc[, isThreatenedNat := ifelse(threatStatusNat == "EX" | threatStatusNat == "CR" | threatStatusNat == "EN" | threatStatusNat == "VU", 1,0)]
+SP2acc <- SP2acc[, isThreatenedGlobal := ifelse(threatStatusGlobal == "EX" | threatStatusGlobal == "CR" | threatStatusGlobal == "EN" | threatStatusGlobal == "VU", 1,0)]
+SP2acc <- SP2acc[, isInvasive := ifelse(nchar(isInvasive)>0, 1,0)]
+```
+
+## Produce the SP2acc.txt export file
+For use later in the Shiny app
+```{r}
+data.table::fwrite(SP2acc, file = "app/bioflora/SP2acc.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
+```
+
+## Import an already built-up SP2acc table (5b)
+And if I want to just read the last version of SP2acc back into R, without having to go through the production
+```{r eval = FALSE}
+SP2acc = data.table::fread("app/bioflora/SP2acc.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+```
+
+# Producing SDint
+## Get non-obscured SDtab for sensitive species
+This can only be run if you have the sensitive dataset (private SDtabsensitive)
+This chunk will replace the table SDtab by an identical version but with exact coordinates
+```{r}
+if (exists("SDtabsensitive")) {
+  
+#Get the list of SDtab that are obscured and remove the obscured coordinates data
+SDobscured <- SDtab[nchar(SDtab$informationWithheld)>2, !c("decimalLatitude", "decimalLongitude", "coordinateUncertaintyInMeters", "locationRemarks")]
+#Get the replacement fields from SDsensitive
+SDunobscured <- SDtabsensitive[,c("occurrenceID", "decimalLatitude", "decimalLongitude", "coordinateUncertaintyInMeters", "locationRemarks")]
+#Put those fields back into the sensitive dataset (should have 40 columns, 479 rows)
+SDfull <- dplyr::left_join(SDobscured, SDunobscured, by = "occurrenceID")
+
+#Take the complete dataset and remove all entries of sensitive species
+#= 36811 + 479 = 37290 of SDtab
+SDnotsensitive <- SDtab[nchar(SDtab$informationWithheld)==0, ]
+
+#Combine everything back together into a replacement SDtab
+SDtab <- rbind(SDnotsensitive, SDfull)
+
+}
+```
+
+## SDtab improved by adding the tdwg4 (Inner vs. Outer islands)
+Ideally, these corrections could be done before publishing to GBIF, or even before i.e. at the source in BIO
+OK done it so I remove it all except for the recovery of tdwg4
+```{r}
+SEY_islgr2 <- dplyr::select(as.data.frame(SEY_islgr), -geometry) %>% 
+  dplyr::rename(islandGroup = isl_grname)
+SDtabxx <- left_join(SDtab, SEY_islgr2, by = "islandGroup")
+SDtabxx$tdwg4 <- SDtabxx$InnerOut
+SDtabxx$tdwg4[SDtabxx$tdwg4 == "SEO"] <- "TDWG:ALD-OO"
+SDtabxx$tdwg4[SDtabxx$tdwg4 == "SEI"] <- "TDWG:SEY-OO"
+SDtabxx <- SDtabxx[,!c("basisOfRecord2", "isl_gr", "InnerOut")]
+SDtab <- SDtabxx
+```
+
+## Get the KBA of occurrence for each mappable record (7.2)
+```{r}
+#Filter the SDtab with mappable coordinates of required accuracy
+SDtabxxx <- SDtab[SDtab$locationRemarks=="toCoordinate" | SDtab$locationRemarks=="toLocality" | SDtab$locationRemarks=="vague",]
+SDtabxxx <- SDtabxxx[SDtabxxx$decimalLatitude > 0 | SDtabxxx$decimalLatitude < 0,]
+
+#Spatialize the object and get the KBA of occurrence
+SDtabxxxshp <- st_as_sf(x = SDtabxxx, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 )
+SDtabxxxKBA <- sf::st_join(SDtabxxxshp, KBA)#, join = "st_within")
+SDtabxxxKBA2 <- dplyr::select(as.data.frame(SDtabxxxKBA), -geometry)
+SDtabxxxKBA3 <- SDtabxxxKBA2 %>% dplyr::group_by(occurrenceID) %>% dplyr::summarize(PA_NAME = first(PA_NAME), STATUSID = first(STATUSID), STATUS = first(STATUS),isPA = first(isPA),isPA2022 = first(isPA2022))
+#SDtab2 <- dplyr::left_join(SDtab2, SDtabxxxKBA3, by = "occurrenceID")
+SDtab2 <- dplyr::left_join(SDtab, SDtabxxxKBA3, by = "occurrenceID") #New dec 2022 vers.
+```
+
+## Get the SPdistrib_sey and SPdistrib_tdwg4 to the SDtab2 format, as occurrences (7.3)
+Making use of the information stored in the extension 'distribution' of seychecklist. This will allow to derive any flora stat for any area at any scale.
+```{r}
+SPdistrib_sey <- dplyr::filter(SPdistrib, locationID != "TDWG:ALD-OO" & locationID != "TDWG:SEY-OO")
+#Get data into the few field that are applicable
+SPdistrib_sey$occurrenceID <- NA
+SPdistrib_sey$country <- "Seychelles"
+SPdistrib_sey$basisOfRecord <- "MaterialCitation" #"Literature"
+SPdistrib_sey$tdwg4 <- NA #""
+SPdistrib_sey <- SPdistrib_sey[,c("occurrenceID", "taxonID", "country", "countryCode", "basisOfRecord", "tdwg4")]
+
+#Idem with SPdistrib_tdwg4
+SPdistrib_islgr <- dplyr::filter(SPdistrib, locationID == "TDWG:ALD-OO" | locationID == "TDWG:SEY-OO") #3534 entries to 1789
+#Get applicable fields
+SPdistrib_islgr$occurrenceID <- NA
+SPdistrib_islgr$country <- "Seychelles"
+SPdistrib_islgr$basisOfRecord <- "MaterialCitation" #"Literature"
+SPdistrib_islgr$tdwg4 <- SPdistrib_islgr$locationID
+SPdistrib_islgr <- SPdistrib_islgr[,c("occurrenceID", "taxonID", "country", "countryCode", "basisOfRecord", "tdwg4")]
+
+#Get just these fields for SDtab2
+SDtab2int <- SDtab2[,c("occurrenceID", "taxonID", "country", "countryCode", "basisOfRecord", "tdwg4")]
+
+#Merge the three into SDint and get back the missing fields from SDtab2
+SDint <- rbind(SDtab2int,SPdistrib_islgr, SPdistrib_sey)
+SDtab2tmp <- SDtab2[,!c("taxonID", "country", "countryCode", "basisOfRecord", "tdwg4")]
+SDint <- dplyr::left_join(SDint, SDtab2tmp, by = "occurrenceID")
+```
+
+## Export / save SDint_obscured or SDint_sensitive for use in Shiny app
+```{r}
+#if (file.exists(paste0(path,"dwca-seysensitive-v1.4.zip"))) {
+if (exists("SDtabsensitive")) {
+  
+  data.table::fwrite(SDint, file = "app/bioflora/SDint_sensitive.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
+  
+} else {
+  
+  SDint_cleaned <- SDint
+
+#We needed full resolution data for the cleaning, but now we need to re-obscure
+SDint_cleaned <- SDint_cleaned[, dLatObsc := ifelse(!is.na(decimalLatitude) & informationWithheld %like% "sensitive",round(decimalLatitude, digits = 2),decimalLatitude)]
+SDint_cleaned <- SDint_cleaned[, dLonObsc := ifelse(!is.na(decimalLongitude) & informationWithheld %like% "sensitive",round(decimalLongitude, digits = 2),decimalLongitude)]
+
+SDint_cleaned <- SDint_cleaned[,!c("decimalLatitude","decimalLongitude")]
+SDint_cleaned <- SDint_cleaned %>% rename(decimalLatitude = dLatObsc, decimalLongitude = dLonObsc)
+
+#To check
+#xx <- SDint_cleaned[nchar(informationWithheld)>2,c("informationWithheld", "decimalLatitude", "dLatObsc")]
+
+data.table::fwrite(SDint_cleaned, file = "app/bioflora/SDint_obscured.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
+  
+}
+```
+
+# Collect (extract) raster values at points
+Only you have the spatial data required
+```{r eval = FALSE}
+# Get SDint with suitable geoaccuracy as a spatial object
+SDintshp <- SDint[SDint$locationRemarks=="toCoordinate",]
+SDintshp <- SDintshp[SDintshp$decimalLatitude > 0 | SDintshp$decimalLatitude < 0,]
+SDintshp <- st_as_sf(x = SDintshp, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 )
+  
+#Extract raster values at points (dem,LC,EcoGe_cur,pot,pre,LUP,Nat + shp: WS,Cad)
+SD_LUP <- raster::extract(LUP, SDintshp) %>% as.data.frame()
+SD_LUP$LUP <- SD_LUP[,1]
+SD_altibelt <- raster::extract(altibelt, SDintshp) %>% as.data.frame()
+SD_altibelt$altibelt <- SD_altibelt[,1]
+SD_dem <- raster::extract(DEM, SDintshp) %>% as.data.frame()
+SD_dem$dem <- SD_dem[,1]
+SDint_rasterData <-cbind(SDintshp, SD_LUP, SD_altibelt, SD_dem) %>% dplyr::select(c("occurrenceID", "LUP", "altibelt", "dem"))
+
+#Write the result to datainput
+data.table::fwrite(SDint_rasterData, file = "SDint_rasterData.txt", append = FALSE, quote = TRUE, sep = "\t")#, encoding = "UTF-8")
+```
