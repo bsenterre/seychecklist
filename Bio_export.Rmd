@@ -290,6 +290,64 @@ b <- b %>% dplyr::select(-islandGroupNearest, -islandNearest, -toCorrect)
 seynotinchecklist <- rbind(a, b) #3046
 ```
 
+# Additional corrections and checks posterior to v1.0 (GBIF feedback on issues)
+```{r}
+#Is there any acceptedNameUsageID referring to a taxonID not in the table?
+seychecklistTaxon2 <- seychecklistTaxon %>% dplyr::select(-species_short, -name_type, -sey_cited, -sey_present, -synonyms_concat, -id_gbif, -id_iucn)
+seychecklistTaxon2 <- left_join(seychecklistTaxon2, seychecklistTaxon2 %>% dplyr::select(taxonID, acceptedNameUsageID) %>% rename(acceptedNameUsageID = taxonID, acceptedNameUsageID2 = acceptedNameUsageID), by = "acceptedNameUsageID")
+xx <- seychecklistTaxon2 %>% dplyr::filter(is.na(acceptedNameUsageID2))
+# 15 issues to be fixed, e.g. 20bf30ce-4034-48ae-80f1-1243cdf62ff6 not in BIO because this is the species name Asystasia gangetica for which we have 1 subspecies in Seychelles, therefore the species name is not filtered in (name accepted but vague).
+#Other issues to solve in BIO: Spermacoce laevis and 'sp Robertson'
+#Meanwhile, I will just remove these problematic synonyms
+seychecklistTaxon2 <- seychecklistTaxon2 %>% dplyr::filter(!is.na(acceptedNameUsageID2)) %>% dplyr::select(-acceptedNameUsageID2)
+
+#Remove any occurrence that relate to one of the removed name (and later fix in BIO)
+seychecklistOccurrences_obscured <- inner_join(seychecklistOccurrences_obscured, seychecklistTaxon2 %>% dplyr::select(taxonID), by = "taxonID") #from 37526 to same, i.e. no change made
+
+#Fix dates that contain HH:MM:SS in occurrence tables
+seychecklistOccurrences_obscured2 <- seychecklistOccurrences_obscured %>% dplyr::select(-occurrenceRemarks1plot, -species_short)
+#get a glimpse of the issues, likely from iNaturalist: ""2015-07-03 22:07:00 +0000"
+#unique(xxcheckocc$eventDate) 
+xx <- seychecklistOccurrences_obscured2 #eventDate is character
+xx$eventDate2 <- xx$eventDate
+xx$eventDate2 <- ifelse(nchar(xx$eventDate2) < 10, as.character(xx$eventDate2), as.character(lubridate::as_date(xx$eventDate2)))
+#Check result
+xxx <- xx %>% dplyr::select(occurrenceID, eventDate, eventDate2) %>% mutate(n = nchar(eventDate))
+#OK that worked so replace object
+xx$eventDate <- xx$eventDate2
+seychecklistOccurrences_obscured2 <- xx %>% dplyr::select(-eventDate2)
+
+#Now, fix the same date issues in the other tables
+xx <- seysensitive #eventDate is character
+xx$eventDate2 <- xx$eventDate
+xx$eventDate2 <- ifelse(nchar(xx$eventDate2) < 10, as.character(xx$eventDate2), as.character(lubridate::as_date(xx$eventDate2)))
+#Check result
+xxx <- xx %>% dplyr::select(occurrenceID, eventDate, eventDate2) %>% mutate(n = nchar(eventDate))
+#OK that worked so replace object
+xx$eventDate <- xx$eventDate2
+seysensitive2 <- xx %>% dplyr::select(-eventDate2)
+
+xx <- seynotinchecklist
+xx$eventDate2 <- xx$eventDate
+xx$eventDate2 <- ifelse(nchar(xx$eventDate2) < 10, as.character(xx$eventDate2), as.character(lubridate::as_date(xx$eventDate2)))
+#Check result
+xxx <- xx %>% dplyr::select(occurrenceID, eventDate, eventDate2) %>% mutate(n = nchar(eventDate))
+#OK that worked so replace object
+xx$eventDate <- xx$eventDate2
+seynotinchecklist2 <- xx %>% dplyr::select(-eventDate2)
+
+#Fix kingdom = at least "Plantae" for the seynotinchecklist2: ok fixed in the BIO export query
+
+#Checking for scientificName incl. "sensu" but missing nameAccordingTo information
+#Based on GBIF explanation, this is necessary. Event though it is acceptable to include in the verbatim scientificName things like "auct.non, sensu xx", this is not enough because for most users of GBIF only the interpreted scientificName will be used, and if they do not see the "sensu" information in the field nameAccordingTo, then they won't know. p.p. synonymies involving only specific specimens is information that must included in the field taxonRemarks for the same reason (it would be lost for most users if only included in scientificName, which will be interpreted by GBIF).
+xx <- seychecklistTaxon %>% dplyr::filter(grepl("sensu", scientificName) & (nchar(nameAccordingTo) == 0 | is.na(nameAccordingTo)))
+#33 issues to fix in BIO, needing addition of biblio references for: Bailey, Summerh., Hemsley, Forb., Friedmann (1994), Aver., Hansen, Kuhn, C.Chr., Badré, Bojer, Vanden Berghen, Wigginton, Engl.
+#Correct also all the new morphospecies names proposed with "Senterre et al. (unpublished)", e.g. Vincetoxicum sp.A
+
+#Check for scientificName ending with a "." or a " "
+#xx <- seychecklistTaxon %>%  filter(str_detect(scientificName, " *$") | str_detect(scientificName, ".*$")) #str_detect(scientificName, "^ ") | str_detect(scientificName, "^.") | 
+```
+
 #Exporting data from Bio to txt files ready for GBIF publication via the IPT
 At the same time here we remove a few extra fields that came from BIO but are not needed in GBIF
 ```{r eval=TRUE}
@@ -299,7 +357,7 @@ path <- "D:/Database/Bio/gbif/Bio_export/"
 data.table::fwrite(setDT(seychecklistTaxon %>% dplyr::select(-species_short, -name_type, -sey_cited, -sey_present, -synonyms_concat, -id_gbif, -id_iucn)), file = paste0(path,"seychecklistTaxon.txt"), append = FALSE, quote = TRUE, sep = "\t")
 #unmapped fields: species_short name_type sey_cited sey_present synonyms_concat id_gbif id_iucn
 
-data.table::fwrite(setDT(seychecklistOccurrences_obscured %>% dplyr::select(-occurrenceRemarks1plot, -species_short)), file = paste0(path,"seychecklistOccurrences_obscured.txt"), append = FALSE, quote = TRUE, sep = "\t")
+data.table::fwrite(setDT(seychecklistOccurrences_obscured2), file = paste0(path,"seychecklistOccurrences_obscured.txt"), append = FALSE, quote = TRUE, sep = "\t")
 #unmapped: occurrenceRemarks1plot species_short, Taxon; wrong format for 'references'?? replace by bibliographicCitation
 
 data.table::fwrite(setDT(seychecklistSpeciesDistribution %>% dplyr::select(-scientificName, -taxonomicStatus, -establishmentMeanstmp, -isMarine, -isFreshwater, -isTerrestrial, -isInvasive, -lifeForm, -habitat)), file = paste0(path,"seychecklistSpeciesDistribution.txt"), append = FALSE, quote = TRUE, sep = "\t")
@@ -310,9 +368,9 @@ data.table::fwrite(setDT(seychecklistSpeciesProfile %>% dplyr::select(-scientifi
 
 data.table::fwrite(setDT(seychecklistAlternativeIdentifiers), file = paste0(path,"seychecklistAlternativeIdentifiers.txt"), append = FALSE, quote = TRUE, sep = "\t")
 
-data.table::fwrite(setDT(seysensitive), file = paste0(path,"seysensitiveOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
+data.table::fwrite(setDT(seysensitive2), file = paste0(path,"seysensitiveOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
 
-data.table::fwrite(setDT(seynotinchecklist), file = paste0(path,"seynotinchecklistOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
+data.table::fwrite(setDT(seynotinchecklist2), file = paste0(path,"seynotinchecklistOccurrences.txt"), append = FALSE, quote = TRUE, sep = "\t")
 
 data.table::fwrite(setDT(seyvegplotEvent), file = paste0(path,"seyvegplotEvent.txt"), append = FALSE, quote = TRUE, sep = "\t")
 data.table::fwrite(setDT(seyvegplotEventOccurrences_obscured), file = paste0(path,"seyvegplotEventOccurrences_obscured.txt"), append = FALSE, quote = TRUE, sep = "\t")
@@ -333,6 +391,7 @@ checkTable = data.table::fread(paste0(path,"seychecklistOccurrences_obscured.txt
 #seyvegplotEvent, seyvegplotEventOccurrences_obscured
 #ecosystemologyOccurrences, Eident
 
+#Check for truncated memo fields
 glimpse(checkTable)
 apply(checkTable,2,function(x) max(nchar(x,keepNA = FALSE)))
 

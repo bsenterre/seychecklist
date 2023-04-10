@@ -22,7 +22,12 @@ library(redlistr)
 
 # R code that runs only once goes here e.g. import data, run calculations
 #Outdated: SDimport = data.table::fread(unzip("dwca-seychecklist-v1.2.zip", "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
-SDint = data.table::fread("SDint_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+if (file.exists("D:/ZAnalysis/ZDraft/datainput/SDint_sensitive.txt")) {
+  SDint = data.table::fread("D:/ZAnalysis/ZDraft/datainput/SDint_sensitive.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+} else {
+  SDint = data.table::fread("SDint_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
+}
+#SDint = data.table::fread("SDint_obscured.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
 #OR IF ACCESS TO THE SENSITIVE DATA
 #SDimport = data.table::fread("SDint_sensitive.txt", header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8")
 
@@ -109,11 +114,11 @@ ui <- bootstrapPage(
     tabsetPanel(type = "tabs",
                 tabPanel("Species distribution map",
                       fluidRow(
-                        column(10,selectInput(inputId="spname", label="Pick a species (n.b. sensitive data are rounded to 1km accuracy)", choices=SDList, selected="Cinnamomum verum J.Presl"))#,
-                        #column(2, downloadButton("downloadData", "Download"))
+                        column(10,selectInput(inputId="spname", label="Pick a species (n.b. sensitive data are rounded to 1km accuracy)", choices=SDList, selected="Cinnamomum verum J.Presl")),
+                        column(2, downloadButton("downloadData", "Download"))
                       ),
                       fluidRow(leafletOutput("mymap")),
-                      verbatimTextOutput("counter"),
+                      #verbatimTextOutput("counter"), #The counter does not work
                       p("App version biodistrib 1.1")
                          ),
                 tabPanel("Nearby records",

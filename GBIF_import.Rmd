@@ -43,12 +43,12 @@ Alternatively, go to the next chunk if you want to run this script based on the 
 #xxedit the path to the downloaded zipped files
 path <- "C:/Users/bsent/Downloads/"
 
-SDtab = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")
+SDtab = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.9.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")
 SDtab <- SDtab %>% dplyr::select(-taxonID) %>% rename(taxonID = id)
-SP = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "taxon.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::select(-id)
-SPmeta = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "speciesprofile.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
-SPdistrib = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "distribution.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
-ID = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.6.zip"), "identifier.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::rename(taxonID=id)
+SP = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.9.zip"), "taxon.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::select(-id)
+SPmeta = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.9.zip"), "speciesprofile.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
+SPdistrib = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.9.zip"), "distribution.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="") %>% dplyr::rename(taxonID=id)
+ID = data.table::fread(unzip(paste0(path,"dwca-seychecklist-v1.9.zip"), "identifier.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::rename(taxonID=id)
 
 SDplot = data.table::fread(unzip(paste0(path,"dwca-seyvegplot-v1.3.zip"), "occurrence.txt"), header = TRUE, sep = "\t", dec = ".", encoding = "UTF-8", quote="")  %>% dplyr::select(-id)
 
@@ -98,20 +98,20 @@ SEY_islgr = sf::st_read("datainput/sey_eez_islgroup.shp", crs = 4326, quiet = TR
 
 To run only if you have the input data (to be shared elsewhere, on Earth Engine)
 ```{r eval = FALSE}
-Cad1 = sf::st_read("datainput/sey_Adm_cadastral_2021dd_ownership.shp", crs = 4326, quiet = TRUE)
-Cad0 = sf::st_read("datainput/sey_Adm_cadastral_2021dd_NOCADASTRE.shp", crs = 4326, quiet = TRUE)
+Cad1 = sf::st_read("D:/ZAnalysis/ZDraft/datainput/sey_Adm_cadastral_2021dd_ownership.shp", crs = 4326, quiet = TRUE)
+Cad0 = sf::st_read("D:/ZAnalysis/ZDraft/datainput/sey_Adm_cadastral_2021dd_NOCADASTRE.shp", crs = 4326, quiet = TRUE)
 #Load the metadata table on cadastral parcels
-CadData <- read.csv("datainput/sey_cad_ownership.csv", header = TRUE, sep = ";", encoding = "Windows-1252")#"UTF-8") #\t
+CadData <- read.csv("D:/ZAnalysis/ZDraft/datainput/sey_cad_ownership.csv", header = TRUE, sep = ";", encoding = "Windows-1252")#"UTF-8") #\t
 
-WS = sf::st_read("datainput/sey_watershed.shp", crs = 4326, quiet = TRUE)
+WS = sf::st_read("D:/ZAnalysis/ZDraft/datainput/sey_watershed.shp", crs = 4326, quiet = TRUE)
 
-DEM <- raster::raster("datainput/Senterre_2021_SeyInner_DEM_Lidar_Jaxa.tif")
-LC <- raster::raster("datainput/Senterre_2021_SeyInner_LC_obia.tif")
-EcoGe_cur <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_cur.tif")
-EcoGe_pot <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_pot.tif")
-EcoGe_pre <- raster::raster("datainput/Senterre_2021_SeyInner_EcoGe_pre.tif")
-LUP <- raster::raster("datainput/Senterre_2021_SeyInner_LUP.tif")
-Nat <- raster::raster("datainput/Senterre_2021_SeyInner_Naturalness.tif")
+DEM <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_DEM_Lidar_Jaxa.tif")
+LC <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_LC_obia.tif")
+EcoGe_cur <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_EcoGe_cur.tif")
+EcoGe_pot <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_EcoGe_pot.tif")
+EcoGe_pre <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_EcoGe_pre.tif")
+LUP <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_LUP.tif")
+Nat <- raster::raster("D:/ZAnalysis/ZDraft/datainput/Senterre_2021_SeyInner_Naturalness.tif")
 
 altibelt_reclass <- c(0, 300, 1, 300, 500, 2, 500, 780, 3, 780, Inf, 4)
 altibelt_mat <- matrix(altibelt_reclass, ncol = 3, byrow = TRUE)
@@ -123,6 +123,30 @@ altibelt <- reclassify(DEM,altibelt_mat)
 
 # Create a sf of all KBAs and PAs (4b)
 ```{r}
+KBA = sf::st_read("datainput/sey_cons_pas2023.shp", crs = 4326, quiet = TRUE) %>% subset(statusID != 8)
+#Correcting an issue (likely from the WDKBA geometries?)
+KBA <- st_make_valid(KBA)
+
+KBA$isPA <- ifelse(KBA$statusID <6,"1-Protected","3-Other")
+KBA$isPA <- ifelse(KBA$statusID == 6,"2-Proposed",KBA$isPA)
+KBA$isPA2022 <- ifelse(KBA$statusID <6,"1-Protected","3-Other")
+KBA$isPA2022 <- ifelse(KBA$kbaName == "Fond Azore-Fond Ferdinand proposed Ecological Reserve" | KBA$kbaName == "Collines Du Sud proposed Ecological Reserve" | KBA$kbaName == "Montagne Planneau proposed National Park" | KBA$kbaName == "Anse Kerland-Midlands proposed Sustainable Use Area","2-Proposed",KBA$isPA2022)
+
+KBAmeta <- dplyr::select(as.data.frame(KBA), -geometry) 
+#to convert a sf object to a simple table (data.frame)
+
+KBAmeta <- with(KBAmeta, KBAmeta[order(statusID, islGroup, kbaName) , ])
+#to re-order the table according to some field content
+#knitr::kable(KBAmeta[1:10, 1:3])
+
+###KBAinner <- st_crop(KBA, st_bbox(extent(LC), crs=4326)) 
+# Subset KBA shp to the extent of the Land Cover Raster
+
+#KBA$area_ha <- st_area(KBA) #Take care of units xxedit remove this if I use the lines for SEYi outline
+```
+
+Older version 1.0
+```{r eval=FALSE}
 KBA = sf::st_read("datainput/sey_cons_pas2021.shp", crs = 4326, quiet = TRUE)
 KBA <- base::subset(KBA, STATUSID != 8)
 #to remove from the database the duplicated geometries corresponding to earlier/outdated outlines
@@ -333,7 +357,7 @@ SDtabxxx <- SDtabxxx[SDtabxxx$decimalLatitude > 0 | SDtabxxx$decimalLatitude < 0
 SDtabxxxshp <- st_as_sf(x = SDtabxxx, coords = c("decimalLongitude", "decimalLatitude"), crs=4326 )
 SDtabxxxKBA <- sf::st_join(SDtabxxxshp, KBA)#, join = "st_within")
 SDtabxxxKBA2 <- dplyr::select(as.data.frame(SDtabxxxKBA), -geometry)
-SDtabxxxKBA3 <- SDtabxxxKBA2 %>% dplyr::group_by(occurrenceID) %>% dplyr::summarize(PA_NAME = first(PA_NAME), STATUSID = first(STATUSID), STATUS = first(STATUS),isPA = first(isPA),isPA2022 = first(isPA2022))
+SDtabxxxKBA3 <- SDtabxxxKBA2 %>% dplyr::group_by(occurrenceID) %>% dplyr::summarize(kbaName = first(kbaName), statusID = first(statusID), status = first(status),isPA = first(isPA),isPA2022 = first(isPA2022))
 #SDtab2 <- dplyr::left_join(SDtab2, SDtabxxxKBA3, by = "occurrenceID")
 SDtab2 <- dplyr::left_join(SDtab, SDtabxxxKBA3, by = "occurrenceID") #New dec 2022 vers.
 ```
